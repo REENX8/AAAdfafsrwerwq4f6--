@@ -115,23 +115,30 @@ button:hover {
     box-shadow: 0 14px 24px rgba(3, 169, 244, 0.35), 0 8px 8px rgba(0, 0, 0, 0.1) !important;
 }
 
-/* Style the file uploader with a soft border and muted text */
+/* File uploader (fix blurry in user view) */
 .stFileUploader {
     border: 2px dashed #38bdf8 !important;
     border-radius: 20px !important;
     padding: 30px !important;
-    background-color: rgba(30, 41, 59, 0.85) !important;  /* แก้ตรงนี้ */
-    backdrop-filter: blur(6px) !important;
-    color: #e5e7eb !important;
-}
-[data-testid="stFileUploaderDropzone"] {
-    background-color: rgba(30, 41, 59, 0.9) !important;
-    color: #e5e7eb !important;
-    border-radius: 20px !important;
+    background-color: rgba(30, 41, 59, 0.90) !important;  /* เข้มขึ้น */
+    color: #e5e7eb !important;                             /* ตัวหนังสือขาวขึ้น */
 }
 .stFileUploader:hover {
     border-color: #7dd3fc !important;
 }
+/* Dropzone text + background */
+[data-testid="stFileUploaderDropzone"]{
+    background-color: rgba(30, 41, 59, 0.92) !important;
+    color: #e5e7eb !important;
+    border-radius: 20px !important;
+}
+
+/* Force all text/icons inside uploader to be visible */
+[data-testid="stFileUploaderDropzone"] *{
+    color: #e5e7eb !important;
+    opacity: 1 !important;
+}
+
 
 /* Radio buttons and select boxes: glassy surface */
 .stRadio > div, .stSelectbox > div > div {
