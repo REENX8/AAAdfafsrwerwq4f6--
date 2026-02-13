@@ -293,11 +293,11 @@ def image_to_demo_sequence(img: Image.Image, num_steps: int = DEFAULT_NUM_STEPS,
 
 @st.cache_resource
 def load_model():
-    if not os.path.exists(MODEL_PATH):
-        st.error(f"⚠️ ไม่พบไฟล์โมเดล: {MODEL_PATH}")
-        st.stop()
+    ensure_model_downloaded()  # << สำคัญมาก
+
     model = CNNGRUClassifier(cnn_name="resnet18", hidden_size=256).to(DEVICE)
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
+    state = torch.load(MODEL_PATH, map_location=DEVICE)
+    model.load_state_dict(state)
     model.eval()
     return model
 
