@@ -1,6 +1,7 @@
 import io
 import os
 import zipfile
+import shutil
 import numpy as np
 import streamlit as st
 import torch
@@ -8,21 +9,25 @@ import gdown
 import pydicom
 from scipy.ndimage import zoom
 from PIL import Image
-from torchvision.models import resnet18  # Import weights enum
+from torchvision.models import resnet18
 
-# Define the old CNNGRUClassifier class here to match the saved model (non-bidirectional, no dropout)
+# =========================
+# Model definition
+# =========================
 class CNNGRUClassifier(torch.nn.Module):
-    def __init__(self, cnn_name: str = 'resnet18', hidden_size: int = 256, num_classes: int = 1) -> None:
+    def __init__(self, cnn_name: str = "resnet18", hidden_size: int = 256, num_classes: int = 1) -> None:
         super().__init__()
-        if cnn_name == 'resnet18':
-            model = resnet18(weights=None)  # Use weights instead of deprecated pretrained
-            self.cnn = torch.nn.Sequential(*(list(model.children())[:-1]))  # output (batch, 512, 1, 1)
+        if cnn_name == "resnet18":
+            model = resnet18(weights=None)
+            self.cnn = torch.nn.Sequential(*(list(model.children())[:-1]))  # (batch, 512, 1, 1)
             cnn_out_channels = 512
         else:
             raise ValueError(f"Unsupported cnn_name: {cnn_name}")
-        self.gru = torch.nn.GRU(input_size=cnn_out_channels, hidden_size=hidden_size, num_layers=1, batch_first=True)  # No bidirectional
-        self.fc = torch.nn.Linear(hidden_size, num_classes)  # Simple Linear, no Sequential/Dropout
-        self.sigmoid = None  # use BCEWithLogitsLoss
+        self.gru = torch.nn.GRU(
+            input_size=cnn_out_channels, hidden_size=hidden_size, num_layers=1, batch_first=True
+        )
+        self.fc = torch.nn.Linear(hidden_size, num_classes)
+        self.sigmoid = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch_size, time_steps, c, h, w = x.shape
@@ -34,15 +39,21 @@ class CNNGRUClassifier(torch.nn.Module):
         logits = self.fc(last_hidden)
         return logits.squeeze(dim=-1)
 
-# ----------------------------
+
+# =========================
 # CONFIG
-# ----------------------------
+# =========================
 MODEL_PATH = "best_bowel_injury_model.pth"
 GDRIVE_FILE_ID = "1-awchgMTBa9Ra7jYzlKzccN8MKeUvOs_"
-import shutil
+
+DEFAULT_NUM_STEPS = 32
+DEFAULT_NUM_SLICES_PER_STEP = 3
+TARGET_SHAPE = (96, 256, 256)
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+MAX_DICOM_SLICES = None
+
 
 def ensure_model_downloaded():
-    # ถ้ามีอยู่แล้วและไม่ว่าง ก็จบ
     if os.path.exists(MODEL_PATH) and os.path.getsize(MODEL_PATH) > 0:
         return
 
@@ -50,16 +61,13 @@ def ensure_model_downloaded():
     tmp_path = f"/tmp/{MODEL_PATH}"
 
     with st.spinner("กำลังดาวน์โหลดโมเดลจาก Google Drive..."):
-        # ลบไฟล์ค้าง
         if os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)
             except Exception:
                 pass
-
         gdown.download(url, tmp_path, quiet=False, fuzzy=True)
 
-    # เช็คไฟล์ว่ามาจริงไหม (กันกรณีได้ HTML แทนโมเดล)
     if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) < 1024 * 100:
         raise RuntimeError("ดาวน์โหลดโมเดลไม่สำเร็จ / ไฟล์เล็กผิดปกติ (อาจเป็น permission/HTML)")
 
@@ -70,54 +78,40 @@ def ensure_model_downloaded():
 
     shutil.move(tmp_path, MODEL_PATH)
 
-# Default sampling parameters; can be overridden by user input in the sidebar.
-DEFAULT_NUM_STEPS = 32
-DEFAULT_NUM_SLICES_PER_STEP = 3
-TARGET_SHAPE = (96, 256, 256)
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-# ไม่จำกัดจำนวนสไลซ์/ขนาดไฟล์ในเวอร์ชันส่งอาจารย์
-MAX_DICOM_SLICES = None
 
-# ----------------------------
+# =========================
 # CSS (FIX ALL FADED TEXT)
-# ----------------------------
+# =========================
 custom_css = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
 
-:root{
-  --fg: #e5e7eb;
-  --muted: #cbd5e1;
-  --muted2: #94a3b8;
-  --panel: rgba(30,41,59,.92);
-  --panel2: rgba(17,24,39,.92);
-  --stroke: rgba(255,255,255,.14);
-}
-
-/* App background + default text */
-[data-testid="stAppViewContainer"]{
+/* App background + global text */
+[data-testid="stAppViewContainer"] {
   background: radial-gradient(circle at top left, #1f2937 0%, #0f172a 100%) !important;
-  font-family: 'Poppins', sans-serif;
-  color: var(--fg) !important;
+  font-family: 'Poppins', sans-serif !important;
+  color: #e5e7eb !important;
 }
 
-/* Force ALL text to be visible (kills opacity that makes user view faded) */
-html, body, [data-testid="stAppViewContainer"] *{
+/* Force default text to be readable everywhere */
+html, body, [data-testid="stAppViewContainer"] * {
+  color: #e5e7eb;
   opacity: 1 !important;
   filter: none !important;
+  text-shadow: none !important;
 }
 
-/* Headings */
-h1,h2,h3{
+/* Headings gradient */
+h1, h2, h3 {
   background: -webkit-linear-gradient(315deg, #5eead4 0%, #22d3ee 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  font-weight: 700;
-  margin-bottom: .5rem;
+  font-weight: 700 !important;
+  margin-bottom: 0.5rem !important;
 }
 
 /* Buttons */
-button{
+button {
   background-image: linear-gradient(145deg, #06b6d4, #3b82f6) !important;
   color: #ffffff !important;
   border-radius: 30px !important;
@@ -125,146 +119,114 @@ button{
   border: none !important;
   font-weight: 600 !important;
   box-shadow: 0 10px 20px rgba(3, 169, 244, 0.25), 0 6px 6px rgba(0, 0, 0, 0.1) !important;
-  transition: transform .3s ease, box-shadow .3s ease !important;
+  transition: transform 0.3s ease, box-shadow 0.3s ease !important;
 }
-button:hover{
+button:hover {
   transform: translateY(-3px) scale(1.02) !important;
   box-shadow: 0 14px 24px rgba(3, 169, 244, 0.35), 0 8px 8px rgba(0, 0, 0, 0.1) !important;
 }
 
-/* Cards */
-.stMetric, div.element-container, .stExpander{
-  background: rgba(255,255,255,.05) !important;
+/* Cards / containers */
+.stMetric, div.element-container, .stExpander {
+  background: rgba(255, 255, 255, 0.05) !important;
   backdrop-filter: blur(10px) !important;
   border-radius: 20px !important;
-  border: 1px solid rgba(255,255,255,.10) !important;
-  box-shadow: 0 8px 32px rgba(0,0,0,.25) !important;
-  color: var(--fg) !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25) !important;
 }
 
-/* Sidebar base */
-section[data-testid="stSidebar"]{
-  background-color: var(--panel2) !important;
-  border-right: 1px solid var(--stroke) !important;
-  color: var(--fg) !important;
+/* Sidebar */
+section[data-testid="stSidebar"] {
+  background-color: rgba(17, 24, 39, 0.92) !important;
+  border-right: 1px solid rgba(255,255,255,0.12) !important;
 }
 
-/* Sidebar: force all text/icons visible (this fixes faded labels in user view) */
-section[data-testid="stSidebar"] *{
-  color: var(--fg) !important;
+/* Force sidebar content readable (fix faded labels) */
+section[data-testid="stSidebar"] * {
+  color: #e5e7eb !important;
   opacity: 1 !important;
   filter: none !important;
 }
-section[data-testid="stSidebar"] label,
-section[data-testid="stSidebar"] p,
-section[data-testid="stSidebar"] span,
-section[data-testid="stSidebar"] small,
-section[data-testid="stSidebar"] div{
-  color: var(--fg) !important;
-}
 
-/* Make help/secondary text less faded but still readable */
-small, .stCaption, [data-testid="stCaptionContainer"], [data-testid="stMarkdownContainer"] small{
-  color: var(--muted) !important;
+/* Inputs / sliders / radios / selectboxes text */
+.stRadio *, .stSelectbox *, .stNumberInput *, .stSlider *, .stTextInput *, .stTextArea * {
+  color: #e5e7eb !important;
   opacity: 1 !important;
 }
 
-/* Inputs: labels */
-label, [data-testid="stWidgetLabel"]{
-  color: var(--fg) !important;
-  opacity: 1 !important;
-}
-
-/* Radio / select / number input containers */
-.stRadio > div, .stSelectbox > div > div, .stNumberInput > div > div{
-  background-color: rgba(255,255,255,.05) !important;
+/* Radio/Select containers */
+.stRadio > div, .stSelectbox > div > div {
+  background-color: rgba(255,255,255,0.06) !important;
   border-radius: 12px !important;
   padding: 12px !important;
-  border: 1px solid rgba(255,255,255,.10) !important;
-  color: var(--fg) !important;
 }
 
-/* Radio text */
-.stRadio *{
-  color: var(--fg) !important;
-  opacity: 1 !important;
-}
-
-/* Slider text */
-.stSlider *{
-  color: var(--fg) !important;
-  opacity: 1 !important;
-}
-
-/* Tabs text */
-.stTabs [data-baseweb="tab"] *{
-  color: var(--fg) !important;
-  opacity: 1 !important;
-}
-
-/* File uploader (MOST IMPORTANT FIX) */
-.stFileUploader{
+/* ===== File Uploader: make user view crisp ===== */
+.stFileUploader {
   border: 2px dashed #38bdf8 !important;
   border-radius: 20px !important;
   padding: 30px !important;
-  background-color: var(--panel) !important;
-  color: var(--fg) !important;
+  background-color: rgba(30, 41, 59, 0.92) !important;
 }
-.stFileUploader:hover{ border-color: #7dd3fc !important; }
 
-/* Dropzone container */
-[data-testid="stFileUploaderDropzone"]{
-  background-color: rgba(30,41,59,.94) !important;
+/* Dropzone itself */
+[data-testid="stFileUploaderDropzone"] {
+  background-color: rgba(30, 41, 59, 0.94) !important;
   border-radius: 20px !important;
-  color: var(--fg) !important;
+  opacity: 1 !important;
 }
 
-/* Force all text/icons inside uploader to be visible */
-.stFileUploader label,
-.stFileUploader small,
-.stFileUploader p,
-.stFileUploader span,
+/* EVERYTHING inside uploader must be visible (fix faded "อัปโหลด..." / "Drag and drop...") */
+.stFileUploader *,
 [data-testid="stFileUploaderDropzone"] *,
-[data-testid="stFileUploaderDropzoneInstructions"] *,
 [data-testid="stFileUploaderDropzone"] svg,
-[data-testid="stFileUploaderDropzone"] path{
-  color: var(--fg) !important;
-  fill: var(--fg) !important;
+[data-testid="stFileUploaderDropzone"] path,
+[data-testid="stFileUploaderDropzone"] small,
+[data-testid="stFileUploaderDropzone"] p,
+[data-testid="stFileUploaderDropzone"] span,
+[data-testid="stFileUploaderDropzone"] label,
+[data-testid="stFileUploaderDropzone"] div {
+  color: #e5e7eb !important;
   opacity: 1 !important;
   filter: none !important;
 }
 
-/* The small gray line under drag-drop (limit text) */
-[data-testid="stFileUploaderDropzoneInstructions"]{
-  color: var(--muted) !important;
-}
-[data-testid="stFileUploaderDropzoneInstructions"] *{
-  color: var(--muted) !important;
+/* Hover */
+.stFileUploader:hover {
+  border-color: #7dd3fc !important;
 }
 
 /* Images */
-.stImage{
+.stImage {
   border-radius: 20px !important;
-  box-shadow: 0 10px 30px rgba(0,0,0,.35) !important;
-  transition: transform .3s ease, box-shadow .3s ease !important;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35) !important;
+  transition: transform 0.3s ease, box-shadow 0.3s ease !important;
 }
-.stImage:hover{
+.stImage:hover {
   transform: scale(1.02) !important;
-  box-shadow: 0 14px 40px rgba(0,0,0,.40) !important;
+  box-shadow: 0 14px 40px rgba(0,0,0,0.4) !important;
 }
 
-/* Alerts text */
-.stAlert p{
-  color: #000000 !important;
-  font-weight: bold !important;
+/* Tabs text */
+.stTabs * {
+  opacity: 1 !important;
+  color: #e5e7eb !important;
+}
+
+/* Captions / markdown text */
+.stCaption, .stMarkdown, .stMarkdown * {
   opacity: 1 !important;
 }
+
+/* Alerts: keep your bold black text (optional) */
+.stAlert p { color: #000000 !important; font-weight: 700 !important; }
 </style>
 """
 
-# ----------------------------
+
+# =========================
 # Processing functions
-# ----------------------------
+# =========================
 def load_dicom_series_from_bytes(dicom_bytes_list: list[bytes]) -> np.ndarray:
     dcm_list = []
     for b in dicom_bytes_list:
@@ -275,125 +237,100 @@ def load_dicom_series_from_bytes(dicom_bytes_list: list[bytes]) -> np.ndarray:
             st.warning(f"Skipping invalid DICOM: {e}")
     if not dcm_list:
         raise ValueError("No valid DICOM files")
+
     def inst(d): return int(getattr(d, "InstanceNumber", 0))
     dcm_list.sort(key=inst)
+
     vol = np.stack([d.pixel_array.astype(np.int16) for d in dcm_list], axis=0).astype(np.float32)
     slope = float(getattr(dcm_list[0], "RescaleSlope", 1.0))
     inter = float(getattr(dcm_list[0], "RescaleIntercept", 0.0))
     return vol * slope + inter
 
+
 def window01(hu: np.ndarray, wl=-175, ww=425) -> np.ndarray:
-    lo, hi = wl - ww/2, wl + ww/2
+    lo, hi = wl - ww / 2, wl + ww / 2
     return np.clip((hu - lo) / (hi - lo), 0, 1)
+
 
 def body_bbox(x01: np.ndarray, thr=0.05):
     m = x01 > thr
-    if not m.any(): return 0, x01.shape[0], 0, x01.shape[1], 0, x01.shape[2]
-    zz = np.where(m.any(axis=(1,2)))[0]
-    yy = np.where(m.any(axis=(0,2)))[0]
-    xx = np.where(m.any(axis=(0,1)))[0]
-    return zz.min(), zz.max()+1, yy.min(), yy.max()+1, xx.min(), xx.max()+1
+    if not m.any():
+        return 0, x01.shape[0], 0, x01.shape[1], 0, x01.shape[2]
+    zz = np.where(m.any(axis=(1, 2)))[0]
+    yy = np.where(m.any(axis=(0, 2)))[0]
+    xx = np.where(m.any(axis=(0, 1)))[0]
+    return zz.min(), zz.max() + 1, yy.min(), yy.max() + 1, xx.min(), xx.max() + 1
+
 
 def crop_resize_to_target(x01: np.ndarray, target=TARGET_SHAPE) -> np.ndarray:
-    z0,z1,y0,y1,x0,x1 = body_bbox(x01)
+    z0, z1, y0, y1, x0, x1 = body_bbox(x01)
     x = x01[z0:z1, y0:y1, x0:x1]
-    tz,th,tw = target
-    return zoom(x, (tz/max(x.shape[0],1), th/max(x.shape[1],1), tw/max(x.shape[2],1)), order=1).astype(np.float16)
+    tz, th, tw = target
+    return zoom(
+        x,
+        (tz / max(x.shape[0], 1), th / max(x.shape[1], 1), tw / max(x.shape[2], 1)),
+        order=1,
+    ).astype(np.float16)
 
-def volume_to_sequence(vol01: np.ndarray, num_steps: int = DEFAULT_NUM_STEPS, num_slices_per_step: int = DEFAULT_NUM_SLICES_PER_STEP) -> torch.Tensor:
-    """
-    Convert a 3D volume (scaled 0..1) into a 5D tensor (1, T, 3, H, W) suitable for the ResNet‑based model.
 
-    Parameters
-    ----------
-    vol01 : np.ndarray
-        3D volume with shape (Z, H, W), scaled to [0, 1].
-    num_steps : int
-        Number of time steps to sample along the Z‑axis.
-    num_slices_per_step : int
-        Number of adjacent slices to include per step (odd number recommended). If not equal to 3, the
-        slices will be mapped to 3 channels by selecting or repeating slices.
-
-    Returns
-    -------
-    torch.Tensor
-        Tensor of shape (1, T, 3, H, W).
-    """
+def volume_to_sequence(
+    vol01: np.ndarray, num_steps: int = DEFAULT_NUM_STEPS, num_slices_per_step: int = DEFAULT_NUM_SLICES_PER_STEP
+) -> torch.Tensor:
     z, h, w = vol01.shape
     centers = np.linspace(0, z - 1, num_steps, dtype=int)
     half = num_slices_per_step // 2
     frames: list[np.ndarray] = []
+
     for c in centers:
         start = max(c - half, 0)
         end = min(c + half + 1, z)
         slc = vol01[start:end]
-        # Pad slices if there aren't enough on either side
+
         if slc.shape[0] < num_slices_per_step:
             pad_pre = half - (c - start)
             pad_post = (c + half) - (end - 1)
             pre = np.repeat(vol01[[start]], max(pad_pre, 0), axis=0) if pad_pre > 0 else np.empty((0, h, w))
             post = np.repeat(vol01[[end - 1]], max(pad_post, 0), axis=0) if pad_post > 0 else np.empty((0, h, w))
             slc = np.concatenate([pre, slc, post], axis=0)
-            # Truncate in case we padded too much
             if slc.shape[0] > num_slices_per_step:
                 slc = slc[:num_slices_per_step]
         else:
-            # Truncate if there are more slices than needed
             slc = slc[:num_slices_per_step]
-        # Map slices to 3 channels for ResNet (if not already 3)
+
         if num_slices_per_step == 3:
             slc3 = slc
         elif num_slices_per_step == 1:
-            # Repeat the single slice to 3 channels
             slc3 = np.repeat(slc, 3, axis=0)
         else:
-            # e.g. 5 slices -> pick 0, middle, last (or evenly spaced)
             idx = np.linspace(0, slc.shape[0] - 1, 3).round().astype(int)
             slc3 = slc[idx]
+
         frames.append(slc3)
+
     seq = np.stack(frames, axis=0).astype(np.float32)  # (T,3,H,W)
     return torch.from_numpy(seq).unsqueeze(0)  # (1,T,3,H,W)
 
-def image_to_demo_sequence(img: Image.Image, num_steps: int = DEFAULT_NUM_STEPS, num_slices_per_step: int = DEFAULT_NUM_SLICES_PER_STEP) -> torch.Tensor:
-    """
-    Convert a single JPEG/PNG image into a dummy 2.5D sequence for demonstration purposes.
 
-    This function normalizes the grayscale version of the image to [0, 1] and repeats it across
-    the specified number of time steps. The number of slices per step is ignored because a single
-    image cannot provide adjacent slices; however, the result always has 3 channels to satisfy
-    the CNN input requirement.
-
-    Parameters
-    ----------
-    img : PIL.Image.Image
-        Input RGB or grayscale image.
-    num_steps : int
-        Number of timesteps to repeat the image.
-    num_slices_per_step : int
-        Ignored for demo mode; included for API compatibility.
-
-    Returns
-    -------
-    torch.Tensor
-        Tensor of shape (1, num_steps, 3, 256, 256).
-    """
+def image_to_demo_sequence(
+    img: Image.Image, num_steps: int = DEFAULT_NUM_STEPS, num_slices_per_step: int = DEFAULT_NUM_SLICES_PER_STEP
+) -> torch.Tensor:
     g = img.convert("L").resize((256, 256))
     arr = np.array(g, dtype=np.float32)
-    # Use numpy.ptp instead of arr.ptp() for NumPy >=2.0
     arr = (arr - arr.min()) / (np.ptp(arr) + 1e-6)
     frame = np.stack([arr] * 3, axis=0)
     seq = np.stack([frame] * num_steps, axis=0).astype(np.float32)
     return torch.from_numpy(seq).unsqueeze(0)
 
+
 @st.cache_resource
 def load_model():
-    ensure_model_downloaded()  # << สำคัญมาก
-
+    ensure_model_downloaded()
     model = CNNGRUClassifier(cnn_name="resnet18", hidden_size=256).to(DEVICE)
     state = torch.load(MODEL_PATH, map_location=DEVICE)
     model.load_state_dict(state)
     model.eval()
     return model
+
 
 def predict_prob_from_seq(model, seq: torch.Tensor) -> float:
     seq = seq.to(DEVICE)
@@ -401,76 +338,41 @@ def predict_prob_from_seq(model, seq: torch.Tensor) -> float:
         prob = torch.sigmoid(model(seq)).item()
     return float(prob)
 
+
 def risk_bucket(prob: float, thresh: float):
-    if prob >= thresh: return "HIGH RISK", "#ff0000"  # Red for HIGH
-    if prob >= 0.5: return "MEDIUM RISK", "#ffa500"  # Orange for MEDIUM
-    return "LOW RISK", "#00ff00"  # Green for LOW
+    if prob >= thresh:
+        return "HIGH RISK", "#ff0000"
+    if prob >= 0.5:
+        return "MEDIUM RISK", "#ffa500"
+    return "LOW RISK", "#00ff00"
 
-# ----------------------------
-# Saliency map for localization
-# ----------------------------
+
+# =========================
+# Saliency
+# =========================
 def compute_saliency_map(model: torch.nn.Module, seq: torch.Tensor) -> np.ndarray:
-    """
-    Compute a simple gradient-based saliency map for a 2.5D sequence.
-
-    The model produces a single probability. We compute the gradient of the
-    probability with respect to the input volume and return the absolute
-    value of the gradients collapsed across channels. The resulting
-    saliency map has shape (T, H, W) and values in [0, 1].
-
-    Parameters
-    ----------
-    model : torch.nn.Module
-        Trained CNN‑GRU model for classification.
-    seq : torch.Tensor
-        Input tensor of shape (1, T, 3, H, W) with gradients enabled.
-
-    Returns
-    -------
-    np.ndarray
-        Saliency map of shape (T, H, W) normalized to [0, 1].
-    """
-    # Clone the sequence to avoid modifying original and ensure gradients
-    seq = seq.to(DEVICE)
-    seq = seq.clone().detach().requires_grad_(True)
-    # Zero any existing gradients
+    seq = seq.to(DEVICE).clone().detach().requires_grad_(True)
     model.zero_grad()
-    # Forward pass with sigmoid to get probability in [0,1]
     prob = torch.sigmoid(model(seq))
-    # We want gradient of the probability scalar with respect to seq
     prob.backward()
-    # Gradient shape: (1, T, 3, H, W)
-    sal = seq.grad.detach().abs().cpu().numpy()[0]
-    # Collapse channel dimension (sum over channel axis)
-    sal_per_slice = sal.sum(axis=1)  # (T, H, W)
-    # Normalize to 0-1
+
+    sal = seq.grad.detach().abs().cpu().numpy()[0]  # (T,3,H,W)
+    sal_per_slice = sal.sum(axis=1)  # (T,H,W)
     sal_max = sal_per_slice.max() if sal_per_slice.max() != 0 else 1.0
-    sal_norm = sal_per_slice / (sal_max + 1e-8)
-    return sal_norm
+    return sal_per_slice / (sal_max + 1e-8)
 
 
-def describe_saliency_location(
-    saliency_map: np.ndarray,
-    percentile: float = 99.0,
-    border: int = 10
-) -> str:
-    """
-    Describe coarse location from saliency map (T,H,W) normalized 0..1
-    using weighted centroid on top-percentile region.
-    """
+def describe_saliency_location(saliency_map: np.ndarray, percentile: float = 99.0, border: int = 10) -> str:
     if saliency_map.size == 0:
         return "ไม่สามารถระบุตำแหน่งได้"
 
-    # aggregate across time (mean). (option: use max for more sensitive)
     agg = saliency_map.mean(axis=0)  # (H,W)
     if not np.isfinite(agg).all() or agg.max() <= 0:
         return "ไม่สามารถระบุตำแหน่งได้"
 
     H, W = agg.shape
-
-    # optional: ignore border to reduce edge-noise
     agg2 = agg.copy()
-    if border > 0 and (H > 2*border) and (W > 2*border):
+    if border > 0 and (H > 2 * border) and (W > 2 * border):
         agg2[:border, :] = 0
         agg2[-border:, :] = 0
         agg2[:, :border] = 0
@@ -479,29 +381,26 @@ def describe_saliency_location(
     if agg2.max() <= 0:
         return "ไม่สามารถระบุตำแหน่งได้"
 
-    # take top percentile as region-of-interest
     thr = np.percentile(agg2[agg2 > 0], percentile) if (agg2 > 0).any() else agg2.max()
     mask = agg2 >= thr
     if not mask.any():
         return "ไม่สามารถระบุตำแหน่งได้"
 
-    # weighted centroid (use saliency as weights)
     weights = agg2[mask]
-    coords = np.argwhere(mask)  # (N,2) -> (row,col)
+    coords = np.argwhere(mask)
     row_mean = (coords[:, 0] * weights).sum() / (weights.sum() + 1e-8)
     col_mean = (coords[:, 1] * weights).sum() / (weights.sum() + 1e-8)
 
-    # coarse bins
-    if row_mean < H/3:
+    if row_mean < H / 3:
         v_pos = "ด้านบน"
-    elif row_mean < 2*H/3:
+    elif row_mean < 2 * H / 3:
         v_pos = "ตรงกลาง"
     else:
         v_pos = "ด้านล่าง"
 
-    if col_mean < W/3:
+    if col_mean < W / 3:
         h_pos = "ซ้าย"
-    elif col_mean < 2*W/3:
+    elif col_mean < 2 * W / 3:
         h_pos = "กลาง"
     else:
         h_pos = "ขวา"
@@ -510,31 +409,29 @@ def describe_saliency_location(
 
 
 def vis_boost(sal: np.ndarray, p_low: float = 70.0, p_high: float = 99.7, gamma: float = 0.4) -> np.ndarray:
-    """Boost contrast for visualization: percentile stretch + gamma."""
     sal = np.maximum(sal, 0.0)
     if not np.isfinite(sal).all():
         sal = np.nan_to_num(sal, nan=0.0, posinf=0.0, neginf=0.0)
     if sal.max() <= 1e-8:
         return np.zeros_like(sal, dtype=np.float32)
+
     lo = np.percentile(sal, p_low)
     hi = np.percentile(sal, p_high)
     if hi <= lo + 1e-8:
         hi = float(sal.max())
+
     sal = np.clip(sal, lo, hi)
     sal = (sal - lo) / (hi - lo + 1e-8)
     sal = sal ** gamma
     return np.clip(sal, 0.0, 1.0).astype(np.float32)
 
 
-def show_saliency_block(model: torch.nn.Module, seq: torch.Tensor, volume01: np.ndarray | None, box_title: str = "Saliency") -> None:
-    """Render: raw saliency, boosted saliency, overlay (if volume given), and coarse location text."""
+def show_saliency_block(model: torch.nn.Module, seq: torch.Tensor, volume01: np.ndarray | None) -> None:
     st.subheader("🔍 Saliency / Localization (Explainability)")
-
-    saliency = compute_saliency_map(model, seq)  # (T,H,W) in [0..1]
+    saliency = compute_saliency_map(model, seq)
     T, H, W = saliency.shape
     t_mid = T // 2
 
-    # Debug stats
     st.caption("Debug: ถ้ามืดมาก แปลว่า saliency อ่อน/กระจาย (ปกติของ gradient-based)")
     st.write("saliency step", t_mid, "min/max:", float(saliency[t_mid].min()), float(saliency[t_mid].max()))
 
@@ -545,21 +442,18 @@ def show_saliency_block(model: torch.nn.Module, seq: torch.Tensor, volume01: np.
         sal_boost = vis_boost(saliency[t_mid])
         st.image(sal_boost, caption=f"Boosted saliency (step {t_mid})", clamp=True, use_container_width=True)
 
-    # Overlay on a representative CT slice (if available)
     if isinstance(volume01, np.ndarray) and volume01.ndim == 3:
         z = volume01.shape[0]
         z_idx = int(np.clip(round((t_mid / max(T - 1, 1)) * (z - 1)), 0, z - 1))
         base = np.clip(volume01[z_idx].astype(np.float32), 0.0, 1.0)
-        rgb = np.stack([base, base, base], axis=-1)  # (H,W,3)
+        rgb = np.stack([base, base, base], axis=-1)
         alpha = 0.6
-        rgb[..., 0] = np.clip((1 - alpha) * rgb[..., 0] + alpha * sal_boost, 0.0, 1.0)  # red overlay
+        rgb[..., 0] = np.clip((1 - alpha) * rgb[..., 0] + alpha * sal_boost, 0.0, 1.0)
         st.image(rgb, caption=f"CT + saliency overlay (z={z_idx}, step {t_mid})", use_container_width=True)
-        # Provide a download button for the overlay image
+
         try:
-            import io
-            from PIL import Image as PILImage
             buf = io.BytesIO()
-            PILImage.fromarray((rgb * 255).astype(np.uint8)).save(buf, format="PNG")
+            Image.fromarray((rgb * 255).astype(np.uint8)).save(buf, format="PNG")
             st.download_button(
                 label="ดาวน์โหลดภาพ overlay",
                 data=buf.getvalue(),
@@ -572,15 +466,16 @@ def show_saliency_block(model: torch.nn.Module, seq: torch.Tensor, volume01: np.
     loc_desc = describe_saliency_location(saliency)
     st.info(f"โมเดลให้ความสนใจกับ **{loc_desc}**")
 
-# ----------------------------
+
+# =========================
 # UI
-# ----------------------------
+# =========================
 st.set_page_config(page_title="CT Bowel Injury Demo", layout="wide", page_icon="🩺")
 st.markdown(custom_css, unsafe_allow_html=True)
 
 st.title("🩺 CT Bowel Injury Detection Demo")
 st.markdown(
-    "<div style='font-size:1.05rem; color:#94a3b8; margin-bottom:1.5rem;'>"
+    "<div style='font-size:1.05rem; color:#e5e7eb; margin-bottom:1.5rem; opacity:1;'>"
     "ต้นแบบเพื่อการศึกษาและวิจัย: ใช้โมเดล AI ช่วยประเมินความเสี่ยงการบาดเจ็บลำไส้จากภาพ CT"
     "</div>",
     unsafe_allow_html=True,
@@ -589,37 +484,26 @@ st.error("⚠️ โปรเจกต์นี้เพื่อการศึ
 
 with st.sidebar:
     st.header("⚙️ การตั้งค่า")
-    threshold = st.slider("เกณฑ์ทำนาย HIGH RISK", 0.5, 0.9, 0.7, 0.05, help="ค่าความน่าจะเป็นตั้งแต่เกณฑ์นี้ขึ้นไปจะถือเป็น HIGH RISK")
-    # Allow the user to customise the sampling parameters
+    threshold = st.slider("เกณฑ์ทำนาย HIGH RISK", 0.5, 0.9, 0.7, 0.05)
     num_steps_input = st.number_input(
-        "จำนวนสเต็ป (num_steps)",
-        min_value=8,
-        max_value=96,
-        value=DEFAULT_NUM_STEPS,
-        step=2,
-        help="จำนวนตำแหน่งที่จะสุ่มตามแนวแกน Z"
+        "จำนวนสเต็ป (num_steps)", min_value=8, max_value=96, value=DEFAULT_NUM_STEPS, step=2
     )
     num_slices_input = st.radio(
-        "สไลซ์ต่อสเต็ป",
-        options=[1, 3, 5],
-        index=[1, 3, 5].index(DEFAULT_NUM_SLICES_PER_STEP),
-        help="จำนวนสไลซ์ที่นำมาประกอบเป็นเฟรมแต่ละสเต็ป (โมเดลจะจัดให้เป็น 3 ช่องเสมอ)"
+        "สไลซ์ต่อสเต็ป", options=[1, 3, 5], index=[1, 3, 5].index(DEFAULT_NUM_SLICES_PER_STEP)
     )
     st.caption(f"Device: **{DEVICE.upper()}**")
     page = st.radio("เมนู", ["🖼️ Gallery", "🧠 AI Prediction (Real)", "🖼️ Demo (Single Image)"])
 
 model = load_model()
 
-# ====================== Gallery ======================
 if page == "🖼️ Gallery":
     st.header("🖼️ Gallery")
-    imgs = st.file_uploader("อัปโหลดภาพ JPG/PNG (หลายไฟล์ได้)", type=["jpg","jpeg","png"], accept_multiple_files=True)
+    imgs = st.file_uploader("อัปโหลดภาพ JPG/PNG (หลายไฟล์ได้)", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
     if imgs:
         cols = st.columns(3)
         for i, f in enumerate(imgs[:12]):
-            cols[i%3].image(f, use_column_width=True)
+            cols[i % 3].image(f, use_container_width=True)
 
-# ====================== Real Prediction ======================
 elif page == "🧠 AI Prediction (Real)":
     st.header("🧠 AI Prediction — ใช้โมเดลจริง")
     tab1, tab2 = st.tabs(["📁 .npy (แนะนำ)", "🗜️ ZIP DICOM"])
@@ -630,26 +514,28 @@ elif page == "🧠 AI Prediction (Real)":
         if up:
             vol = np.load(up)
             vol01 = np.clip(vol.astype(np.float32), 0, 1)
-            mid = vol01.shape[0]//2
+            mid = vol01.shape[0] // 2
             st.image(vol01[mid], "Preview Slice", clamp=True)
             progress.progress(50)
+
             seq = volume_to_sequence(vol01, num_steps=int(num_steps_input), num_slices_per_step=int(num_slices_input))
             prob = predict_prob_from_seq(model, seq)
             progress.progress(100)
-            # Display prediction metrics
+
             col1, col2 = st.columns(2)
             with col1:
                 st.metric("Probability", f"{prob:.4f}")
             with col2:
                 label, bg_color = risk_bucket(prob, threshold)
                 st.markdown(
-                    f'<div style="background-color: {bg_color}; border-radius: 15px; padding: 20px; color: #000000; font-weight: bold; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">**Prediction: {label}**</div>',
+                    f'<div style="background-color:{bg_color}; border-radius:15px; padding:20px; '
+                    f'color:#000; font-weight:800; text-align:center;">Prediction: {label}</div>',
                     unsafe_allow_html=True,
                 )
-            # Optionally show saliency map for interpretability
+
             show_heatmap = st.checkbox("แสดงแผนที่ความสนใจ (saliency map)", key="saliency_npy")
             if show_heatmap:
-                show_saliency_block(model, seq, volume01=vol01, box_title="Saliency (.npy)")
+                show_saliency_block(model, seq, volume01=vol01)
 
     with tab2:
         up = st.file_uploader("อัปโหลด ZIP ที่มี DICOM slices", type="zip")
@@ -666,8 +552,10 @@ elif page == "🧠 AI Prediction (Real)":
             vol01 = window01(hu)
             vol = crop_resize_to_target(vol01)
             progress.progress(80)
-            mid = vol.shape[0]//2
+
+            mid = vol.shape[0] // 2
             st.image(vol[mid], "Processed Preview", clamp=True)
+
             seq = volume_to_sequence(vol, num_steps=int(num_steps_input), num_slices_per_step=int(num_slices_input))
             prob = predict_prob_from_seq(model, seq)
             progress.progress(100)
@@ -678,29 +566,35 @@ elif page == "🧠 AI Prediction (Real)":
             with col2:
                 label, bg_color = risk_bucket(prob, threshold)
                 st.markdown(
-                    f'<div style="background-color: {bg_color}; border-radius: 15px; padding: 20px; color: #000000; font-weight: bold; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">**Prediction: {label}**</div>',
+                    f'<div style="background-color:{bg_color}; border-radius:15px; padding:20px; '
+                    f'color:#000; font-weight:800; text-align:center;">Prediction: {label}</div>',
                     unsafe_allow_html=True,
                 )
-            # Optionally show saliency map for interpretability
+
             show_heatmap = st.checkbox("แสดงแผนที่ความสนใจ (saliency map)", key="saliency_zip")
             if show_heatmap:
-                show_saliency_block(model, seq, volume01=vol, box_title="Saliency (ZIP DICOM)")
+                show_saliency_block(model, seq, volume01=vol)
 
-# ====================== Demo Single Image ======================
 else:
     st.header("🖼️ Demo Mode (JPEG/PNG)")
     st.warning("⚠️ เดโมเท่านั้น — ใช้ภาพเดียว ไม่แม่นยำ")
-    up = st.file_uploader("อัปโหลดภาพ", type=["jpg","jpeg","png"])
+    up = st.file_uploader("อัปโหลดภาพ", type=["jpg", "jpeg", "png"])
     if up:
         img = Image.open(up)
-        st.image(img, use_column_width=True)
+        st.image(img, use_container_width=True)
         seq = image_to_demo_sequence(img, num_steps=int(num_steps_input), num_slices_per_step=int(num_slices_input))
         prob = predict_prob_from_seq(model, seq)
+
         col1, col2 = st.columns(2)
-        with col1: st.metric("Demo Probability", f"{prob:.4f}")
+        with col1:
+            st.metric("Demo Probability", f"{prob:.4f}")
         with col2:
             label, bg_color = risk_bucket(prob, threshold)
-            st.markdown(f'<div style="background-color: {bg_color}; border-radius: 15px; padding: 20px; color: #000000; font-weight: bold; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">**Demo: {label}**</div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div style="background-color:{bg_color}; border-radius:15px; padding:20px; '
+                f'color:#000; font-weight:800; text-align:center;">Demo: {label}</div>',
+                unsafe_allow_html=True,
+            )
 
 st.markdown("---")
 st.caption("Educational prototype • Developed with ❤️ by REEN • Not for medical use")
