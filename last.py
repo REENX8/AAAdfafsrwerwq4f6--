@@ -8,14 +8,14 @@ import gdown
 import pydicom
 from scipy.ndimage import zoom
 from PIL import Image
-from torchvision.models import resnet18, ResNet18_Weights  # Import weights enum
+from torchvision.models import resnet18  # Import weights enum
 
 # Define the old CNNGRUClassifier class here to match the saved model (non-bidirectional, no dropout)
 class CNNGRUClassifier(torch.nn.Module):
     def __init__(self, cnn_name: str = 'resnet18', hidden_size: int = 256, num_classes: int = 1) -> None:
         super().__init__()
         if cnn_name == 'resnet18':
-            model = resnet18(weights=ResNet18_Weights.DEFAULT)  # Use weights instead of deprecated pretrained
+            model = resnet18(weights=None)  # Use weights instead of deprecated pretrained
             self.cnn = torch.nn.Sequential(*(list(model.children())[:-1]))  # output (batch, 512, 1, 1)
             cnn_out_channels = 512
         else:
@@ -39,17 +39,37 @@ class CNNGRUClassifier(torch.nn.Module):
 # ----------------------------
 MODEL_PATH = "best_bowel_injury_model.pth"
 GDRIVE_FILE_ID = "1-awchgMTBa9Ra7jYzlKzccN8MKeUvOs_"
+import shutil
+
 def ensure_model_downloaded():
+    # ถ้ามีอยู่แล้วและไม่ว่าง ก็จบ
     if os.path.exists(MODEL_PATH) and os.path.getsize(MODEL_PATH) > 0:
         return
 
     url = f"https://drive.google.com/uc?id={GDRIVE_FILE_ID}"
-    with st.spinner("กำลังดาวน์โหลดโมเดลจาก Google Drive..."):
-        # quiet=False เพื่อให้เห็น log ใน cloud ได้บ้าง
-        gdown.download(url, MODEL_PATH, quiet=False)
+    tmp_path = f"/tmp/{MODEL_PATH}"
 
-    if not os.path.exists(MODEL_PATH) or os.path.getsize(MODEL_PATH) == 0:
-        raise RuntimeError("ดาวน์โหลดโมเดลไม่สำเร็จ / ไฟล์ว่าง")
+    with st.spinner("กำลังดาวน์โหลดโมเดลจาก Google Drive..."):
+        # ลบไฟล์ค้าง
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+        gdown.download(url, tmp_path, quiet=False, fuzzy=True)
+
+    # เช็คไฟล์ว่ามาจริงไหม (กันกรณีได้ HTML แทนโมเดล)
+    if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) < 1024 * 100:
+        raise RuntimeError("ดาวน์โหลดโมเดลไม่สำเร็จ / ไฟล์เล็กผิดปกติ (อาจเป็น permission/HTML)")
+
+    with open(tmp_path, "rb") as f:
+        head = f.read(200).lower()
+    if b"<html" in head or b"google drive" in head:
+        raise RuntimeError("ดาวน์โหลดได้ไฟล์ HTML แทนโมเดล → เช็คว่าไฟล์ Drive เป็น Anyone with the link")
+
+    shutil.move(tmp_path, MODEL_PATH)
+
 # Default sampling parameters; can be overridden by user input in the sidebar.
 DEFAULT_NUM_STEPS = 32
 DEFAULT_NUM_SLICES_PER_STEP = 3
