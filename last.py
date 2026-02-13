@@ -4,6 +4,7 @@ import zipfile
 import numpy as np
 import streamlit as st
 import torch
+import gdown
 import pydicom
 from scipy.ndimage import zoom
 from PIL import Image
@@ -37,6 +38,18 @@ class CNNGRUClassifier(torch.nn.Module):
 # CONFIG
 # ----------------------------
 MODEL_PATH = "best_bowel_injury_model.pth"
+GDRIVE_FILE_ID = "1-awchgMTBa9Ra7jYzlKzccN8MKeUvOs_"
+def ensure_model_downloaded():
+    if os.path.exists(MODEL_PATH) and os.path.getsize(MODEL_PATH) > 0:
+        return
+
+    url = f"https://drive.google.com/uc?id={GDRIVE_FILE_ID}"
+    with st.spinner("กำลังดาวน์โหลดโมเดลจาก Google Drive..."):
+        # quiet=False เพื่อให้เห็น log ใน cloud ได้บ้าง
+        gdown.download(url, MODEL_PATH, quiet=False)
+
+    if not os.path.exists(MODEL_PATH) or os.path.getsize(MODEL_PATH) == 0:
+        raise RuntimeError("ดาวน์โหลดโมเดลไม่สำเร็จ / ไฟล์ว่าง")
 # Default sampling parameters; can be overridden by user input in the sidebar.
 DEFAULT_NUM_STEPS = 32
 DEFAULT_NUM_SLICES_PER_STEP = 3
