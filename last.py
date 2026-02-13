@@ -78,106 +78,187 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # ไม่จำกัดจำนวนสไลซ์/ขนาดไฟล์ในเวอร์ชันส่งอาจารย์
 MAX_DICOM_SLICES = None
 
-# Custom CSS for a modern, elegant dark theme with glassmorphism effects
+# ----------------------------
+# CSS (FIX ALL FADED TEXT)
+# ----------------------------
 custom_css = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
 
-/* Global container with radial gradient and Poppins font */
-[data-testid="stAppViewContainer"] {
-    background: radial-gradient(circle at top left, #1f2937 0%, #0f172a 100%) !important;
-    font-family: 'Poppins', sans-serif;
-    color: #e5e7eb !important;
+:root{
+  --fg: #e5e7eb;
+  --muted: #cbd5e1;
+  --muted2: #94a3b8;
+  --panel: rgba(30,41,59,.92);
+  --panel2: rgba(17,24,39,.92);
+  --stroke: rgba(255,255,255,.14);
 }
 
-/* Gradient headings with subtle shadow */
-h1, h2, h3 {
-    background: -webkit-linear-gradient(315deg, #5eead4 0%, #22d3ee 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    font-weight: 700;
-    margin-bottom: 0.5rem;
+/* App background + default text */
+[data-testid="stAppViewContainer"]{
+  background: radial-gradient(circle at top left, #1f2937 0%, #0f172a 100%) !important;
+  font-family: 'Poppins', sans-serif;
+  color: var(--fg) !important;
 }
 
-/* Primary buttons with gradient and smooth hover/active effect */
-button {
-    background-image: linear-gradient(145deg, #06b6d4, #3b82f6) !important;
-    color: #ffffff !important;
-    border-radius: 30px !important;
-    padding: 14px 28px !important;
-    border: none !important;
-    font-weight: 600 !important;
-    box-shadow: 0 10px 20px rgba(3, 169, 244, 0.25), 0 6px 6px rgba(0, 0, 0, 0.1) !important;
-    transition: transform 0.3s ease, box-shadow 0.3s ease !important;
-}
-button:hover {
-    transform: translateY(-3px) scale(1.02) !important;
-    box-shadow: 0 14px 24px rgba(3, 169, 244, 0.35), 0 8px 8px rgba(0, 0, 0, 0.1) !important;
+/* Force ALL text to be visible (kills opacity that makes user view faded) */
+html, body, [data-testid="stAppViewContainer"] *{
+  opacity: 1 !important;
+  filter: none !important;
 }
 
-/* File uploader (fix blurry in user view) */
-.stFileUploader {
-    border: 2px dashed #38bdf8 !important;
-    border-radius: 20px !important;
-    padding: 30px !important;
-    background-color: rgba(30, 41, 59, 0.90) !important;  /* เข้มขึ้น */
-    color: #e5e7eb !important;                             /* ตัวหนังสือขาวขึ้น */
+/* Headings */
+h1,h2,h3{
+  background: -webkit-linear-gradient(315deg, #5eead4 0%, #22d3ee 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 700;
+  margin-bottom: .5rem;
 }
-.stFileUploader:hover {
-    border-color: #7dd3fc !important;
+
+/* Buttons */
+button{
+  background-image: linear-gradient(145deg, #06b6d4, #3b82f6) !important;
+  color: #ffffff !important;
+  border-radius: 30px !important;
+  padding: 14px 28px !important;
+  border: none !important;
+  font-weight: 600 !important;
+  box-shadow: 0 10px 20px rgba(3, 169, 244, 0.25), 0 6px 6px rgba(0, 0, 0, 0.1) !important;
+  transition: transform .3s ease, box-shadow .3s ease !important;
 }
-/* Dropzone text + background */
+button:hover{
+  transform: translateY(-3px) scale(1.02) !important;
+  box-shadow: 0 14px 24px rgba(3, 169, 244, 0.35), 0 8px 8px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Cards */
+.stMetric, div.element-container, .stExpander{
+  background: rgba(255,255,255,.05) !important;
+  backdrop-filter: blur(10px) !important;
+  border-radius: 20px !important;
+  border: 1px solid rgba(255,255,255,.10) !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,.25) !important;
+  color: var(--fg) !important;
+}
+
+/* Sidebar base */
+section[data-testid="stSidebar"]{
+  background-color: var(--panel2) !important;
+  border-right: 1px solid var(--stroke) !important;
+  color: var(--fg) !important;
+}
+
+/* Sidebar: force all text/icons visible (this fixes faded labels in user view) */
+section[data-testid="stSidebar"] *{
+  color: var(--fg) !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] p,
+section[data-testid="stSidebar"] span,
+section[data-testid="stSidebar"] small,
+section[data-testid="stSidebar"] div{
+  color: var(--fg) !important;
+}
+
+/* Make help/secondary text less faded but still readable */
+small, .stCaption, [data-testid="stCaptionContainer"], [data-testid="stMarkdownContainer"] small{
+  color: var(--muted) !important;
+  opacity: 1 !important;
+}
+
+/* Inputs: labels */
+label, [data-testid="stWidgetLabel"]{
+  color: var(--fg) !important;
+  opacity: 1 !important;
+}
+
+/* Radio / select / number input containers */
+.stRadio > div, .stSelectbox > div > div, .stNumberInput > div > div{
+  background-color: rgba(255,255,255,.05) !important;
+  border-radius: 12px !important;
+  padding: 12px !important;
+  border: 1px solid rgba(255,255,255,.10) !important;
+  color: var(--fg) !important;
+}
+
+/* Radio text */
+.stRadio *{
+  color: var(--fg) !important;
+  opacity: 1 !important;
+}
+
+/* Slider text */
+.stSlider *{
+  color: var(--fg) !important;
+  opacity: 1 !important;
+}
+
+/* Tabs text */
+.stTabs [data-baseweb="tab"] *{
+  color: var(--fg) !important;
+  opacity: 1 !important;
+}
+
+/* File uploader (MOST IMPORTANT FIX) */
+.stFileUploader{
+  border: 2px dashed #38bdf8 !important;
+  border-radius: 20px !important;
+  padding: 30px !important;
+  background-color: var(--panel) !important;
+  color: var(--fg) !important;
+}
+.stFileUploader:hover{ border-color: #7dd3fc !important; }
+
+/* Dropzone container */
 [data-testid="stFileUploaderDropzone"]{
-    background-color: rgba(30, 41, 59, 0.92) !important;
-    color: #e5e7eb !important;
-    border-radius: 20px !important;
+  background-color: rgba(30,41,59,.94) !important;
+  border-radius: 20px !important;
+  color: var(--fg) !important;
 }
 
 /* Force all text/icons inside uploader to be visible */
-[data-testid="stFileUploaderDropzone"] *{
-    color: #e5e7eb !important;
-    opacity: 1 !important;
+.stFileUploader label,
+.stFileUploader small,
+.stFileUploader p,
+.stFileUploader span,
+[data-testid="stFileUploaderDropzone"] *,
+[data-testid="stFileUploaderDropzoneInstructions"] *,
+[data-testid="stFileUploaderDropzone"] svg,
+[data-testid="stFileUploaderDropzone"] path{
+  color: var(--fg) !important;
+  fill: var(--fg) !important;
+  opacity: 1 !important;
+  filter: none !important;
 }
 
-
-/* Radio buttons and select boxes: glassy surface */
-.stRadio > div, .stSelectbox > div > div {
-    background-color: rgba(255,255,255,0.05) !important;
-    border-radius: 12px !important;
-    padding: 12px !important;
-    color: #94a3b8 !important;
+/* The small gray line under drag-drop (limit text) */
+[data-testid="stFileUploaderDropzoneInstructions"]{
+  color: var(--muted) !important;
+}
+[data-testid="stFileUploaderDropzoneInstructions"] *{
+  color: var(--muted) !important;
 }
 
-/* Images with stronger shadow and subtle zoom effect */
-.stImage {
-    border-radius: 20px !important;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.35) !important;
-    transition: transform 0.3s ease, box-shadow 0.3s ease !important;
+/* Images */
+.stImage{
+  border-radius: 20px !important;
+  box-shadow: 0 10px 30px rgba(0,0,0,.35) !important;
+  transition: transform .3s ease, box-shadow .3s ease !important;
 }
-.stImage:hover {
-    transform: scale(1.02) !important;
-    box-shadow: 0 14px 40px rgba(0,0,0,0.4) !important;
-}
-
-/* Cards (metrics, expanders, element containers) with glassmorphism */
-.stMetric, div.element-container, .stExpander {
-    background: rgba(255, 255, 255, 0.05) !important;
-    backdrop-filter: blur(10px) !important;
-    border-radius: 20px !important;
-    border: 1px solid rgba(255,255,255,0.1) !important;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25) !important;
-    color: #e0f2fe !important;
+.stImage:hover{
+  transform: scale(1.02) !important;
+  box-shadow: 0 14px 40px rgba(0,0,0,.40) !important;
 }
 
-/* Sidebar: semi-transparent dark background */
-section[data-testid="stSidebar"] {
-    background-color: rgba(17, 24, 39, 0.9) !important;
-    border-right: 1px solid rgba(255,255,255,0.1) !important;
-    color: #cbd5e1 !important;
+/* Alerts text */
+.stAlert p{
+  color: #000000 !important;
+  font-weight: bold !important;
+  opacity: 1 !important;
 }
-
-/* Alert text (warnings/errors) styling */
-.stAlert p { color: #000000 !important; font-weight: bold !important; }
 </style>
 """
 
