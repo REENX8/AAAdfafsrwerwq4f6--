@@ -120,8 +120,14 @@ button:hover {
     border: 2px dashed #38bdf8 !important;
     border-radius: 20px !important;
     padding: 30px !important;
-    background-color: rgba(255,255,255,0.05) !important;
-    color: #94a3b8 !important;
+    background-color: rgba(30, 41, 59, 0.85) !important;  /* แก้ตรงนี้ */
+    backdrop-filter: blur(6px) !important;
+    color: #e5e7eb !important;
+}
+[data-testid="stFileUploaderDropzone"] {
+    background-color: rgba(30, 41, 59, 0.9) !important;
+    color: #e5e7eb !important;
+    border-radius: 20px !important;
 }
 .stFileUploader:hover {
     border-color: #7dd3fc !important;
