@@ -437,10 +437,10 @@ def show_saliency_block(model: torch.nn.Module, seq: torch.Tensor, volume01: np.
 
     colA, colB = st.columns(2)
     with colA:
-        st.image(saliency[t_mid], caption=f"Raw saliency (step {t_mid})", clamp=True, use_container_width=True)
+        st.image(saliency[t_mid], caption=f"Raw saliency (step {t_mid})", clamp=True, width="stretch")
     with colB:
         sal_boost = vis_boost(saliency[t_mid])
-        st.image(sal_boost, caption=f"Boosted saliency (step {t_mid})", clamp=True, use_container_width=True)
+        st.image(sal_boost, caption=f"Boosted saliency (step {t_mid})", clamp=True, width="stretch")
 
     if isinstance(volume01, np.ndarray) and volume01.ndim == 3:
         z = volume01.shape[0]
@@ -449,7 +449,7 @@ def show_saliency_block(model: torch.nn.Module, seq: torch.Tensor, volume01: np.
         rgb = np.stack([base, base, base], axis=-1)
         alpha = 0.6
         rgb[..., 0] = np.clip((1 - alpha) * rgb[..., 0] + alpha * sal_boost, 0.0, 1.0)
-        st.image(rgb, caption=f"CT + saliency overlay (z={z_idx}, step {t_mid})", use_container_width=True)
+        st.image(rgb, caption=f"CT + saliency overlay (z={z_idx}, step {t_mid})", width="stretch")
 
         try:
             buf = io.BytesIO()
@@ -502,7 +502,7 @@ if page == "🖼️ Gallery":
     if imgs:
         cols = st.columns(3)
         for i, f in enumerate(imgs[:12]):
-            cols[i % 3].image(f, use_container_width=True)
+            cols[i%3].image(f, width="stretch")
 
 elif page == "🧠 AI Prediction (Real)":
     st.header("🧠 AI Prediction — ใช้โมเดลจริง")
@@ -581,7 +581,7 @@ else:
     up = st.file_uploader("อัปโหลดภาพ", type=["jpg", "jpeg", "png"])
     if up:
         img = Image.open(up)
-        st.image(img, use_container_width=True)
+        st.image(img, width="stretch")
         seq = image_to_demo_sequence(img, num_steps=int(num_steps_input), num_slices_per_step=int(num_slices_input))
         prob = predict_prob_from_seq(model, seq)
 
